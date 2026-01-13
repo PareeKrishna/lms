@@ -5,7 +5,7 @@ import connectDB from "./configs/mongodb.js";
 import { clerkWebhooks } from "./controllers/webhooks.js";
 
 //initialize express
-const app = express();
+const app = express(); 
 //connect to database
 await connectDB();
 //middlewares
