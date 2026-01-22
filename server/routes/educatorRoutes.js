@@ -1,43 +1,41 @@
 import express from 'express';
-import { addCourse, getEducatorCourses, updateRoleToEducator } from '../controllers/educatorController.js';
+import { addCourse, getEducatorCourses, updateRoleToEducator, checkUserRole } from '../controllers/educatorController.js';
 import upload from '../configs/multer.js';
 import { protectEducator } from '../middlewares/authMiddleware.js';
+import logger from '../utils/logger.js';
 
 const educatorRouter = express.Router();
 
-//Add Educator Role
+logger.info("Registering educator routes");
 
-educatorRouter.get('/update-role', updateRoleToEducator);
+//Check current user role (no protection needed - users can check their own role)
+educatorRouter.get('/check-role', (req, res, next) => {
+  logger.debug("Route accessed: GET /check-role");
+  next();
+}, checkUserRole);
+
+//Add Educator Role
+educatorRouter.get('/update-role', (req, res, next) => {
+  logger.debug("Route accessed: GET /update-role");
+  next();
+}, updateRoleToEducator);
+
 educatorRouter.post(
   "/add-course",
-
-  // 1️⃣ Route reached
   (req, res, next) => {
-    console.log("✅ Route hit: /add-course");
+    logger.debug("Route accessed: POST /add-course");
     next();
   },
-
-  // 2️⃣ Multer
   upload.single("image"),
-
-  (req, res, next) => {
-    console.log("📦 After multer");
-    console.log("FILE:", req.file);
-    console.log("BODY:", req.body);
-    next();
-  },
-
-  // 3️⃣ Auth middleware
   protectEducator,
-
-  (req, res, next) => {
-    console.log("🔐 After protectEducator");
-    console.log("AUTH:", req.auth);
-    next();
-  },
-
-  // 4️⃣ Controller
   addCourse
 );
-educatorRouter.get('/courses', protectEducator,getEducatorCourses);
-export default educatorRouter 
+
+educatorRouter.get('/courses', (req, res, next) => {
+  logger.debug("Route accessed: GET /courses");
+  next();
+}, protectEducator, getEducatorCourses);
+
+logger.info("Educator routes registered successfully");
+
+export default educatorRouter;

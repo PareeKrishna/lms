@@ -3,9 +3,12 @@ import uniqid from "uniqid";
 import Quill from "quill";
 import "quill/dist/quill.core.css";
 import { assets } from "../../assets/assets";
+import { useAuth } from "@clerk/clerk-react";
+
 const AddCourse = () => {
   const quillRef = useRef(null);
   const editorRef = useRef(null);
+  const { getToken } = useAuth();
 
   const [courseTitle, setCourseTitle] = useState("");
   const [coursePrice, setCoursePrice] = useState(0);
@@ -20,6 +23,8 @@ const AddCourse = () => {
     lectureUrl: "",
     isPreviewFree: false,
   });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitMessage, setSubmitMessage] = useState("");
 
   const handleChapter = (action, chapterId) => {
     if (action === "add") {
@@ -94,6 +99,89 @@ const AddCourse = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setIsSubmitting(true);
+    setSubmitMessage("");
+
+    try {
+      // Get the Clerk token
+      const token = await getToken();
+      
+      if (!token) {
+        setSubmitMessage("Error: Please sign in to add a course");
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Get course description from Quill editor
+      const courseDescription = quillRef.current?.root.innerHTML || "";
+
+      // Validate required fields
+      if (!courseTitle || !image || chapters.length === 0) {
+        setSubmitMessage("Error: Please fill in all required fields (title, thumbnail, and at least one chapter)");
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Prepare course data
+      const courseData = {
+        courseTitle,
+        courseDescription,
+        coursePrice: Number(coursePrice),
+        discount: Number(discount),
+        courseContent: chapters.map((chapter) => ({
+          chapterId: chapter.chapterId,
+          chapterOrder: chapter.chapterOrder,
+          chapterTitle: chapter.chapterTitle,
+          chapterContent: chapter.chapterContent.map((lecture) => ({
+            lectureId: lecture.lectureId,
+            lectureTitle: lecture.lectureTitle,
+            lectureDuration: Number(lecture.lectureDuration),
+            lectureUrl: lecture.lectureUrl,
+            isPreviewFree: lecture.isPreviewFree,
+            lectureOrder: lecture.lectureOrder,
+          })),
+        })),
+      };
+
+      // Create FormData for file upload
+      const formData = new FormData();
+      formData.append("image", image);
+      formData.append("courseData", JSON.stringify(courseData));
+
+      // Get API URL from environment or use default
+      const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:5000";
+      
+      // Make the API request with Authorization header
+      const response = await fetch(`${apiUrl}/api/educator/add-course`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: formData,
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        setSubmitMessage("Course added successfully!");
+        // Reset form
+        setCourseTitle("");
+        setCoursePrice(0);
+        setDiscount(0);
+        setImage(null);
+        setChapters([]);
+        if (quillRef.current) {
+          quillRef.current.root.innerHTML = "";
+        }
+      } else {
+        setSubmitMessage(`Error: ${result.message || "Failed to add course"}`);
+      }
+    } catch (error) {
+      console.error("Error submitting course:", error);
+      setSubmitMessage(`Error: ${error.message || "Failed to add course"}`);
+    } finally {
+      setIsSubmitting(false);
+    }
   }
   useEffect(() => {
     if (!quillRef.current && editorRef.current) {
@@ -335,11 +423,17 @@ const AddCourse = () => {
             </div>
           )}
         </div>
+        {submitMessage && (
+          <div className={`my-4 p-3 rounded ${submitMessage.includes("Error") ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700"}`}>
+            {submitMessage}
+          </div>
+        )}
         <button
           type="submit"
-          className="bg-black text-white w-max py-2.5 px-8 rounded my-4 cursor-pointer"
+          disabled={isSubmitting}
+          className={`bg-black text-white w-max py-2.5 px-8 rounded my-4 cursor-pointer ${isSubmitting ? "opacity-50 cursor-not-allowed" : ""}`}
         >
-          ADD
+          {isSubmitting ? "Adding..." : "ADD"}
         </button>
       </form>
     </div>
