@@ -1,5 +1,5 @@
 import express from 'express';
-import { addCourse, getEducatorCourses, updateRoleToEducator, checkUserRole } from '../controllers/educatorController.js';
+import { addCourse, getEducatorCourses, updateRoleToEducator, checkUserRole, educatorDashboardData, getEnrolledStudentsData } from '../controllers/educatorController.js';
 import upload from '../configs/multer.js';
 import { protectEducator } from '../middlewares/authMiddleware.js';
 import logger from '../utils/logger.js';
@@ -35,6 +35,18 @@ educatorRouter.get('/courses', (req, res, next) => {
   logger.debug("Route accessed: GET /courses");
   next();
 }, protectEducator, getEducatorCourses);
+
+//Get Educator Dashboard Data
+educatorRouter.get('/dashboard', (req, res, next) => {
+  logger.debug("Route accessed: GET /dashboard");
+  next();
+}, protectEducator, educatorDashboardData);
+
+//Get Enrolled Students Data
+educatorRouter.get('/enrolled-students', (req, res, next) => {
+  logger.debug("Route accessed: GET /enrolled-students");
+  next();
+}, protectEducator, getEnrolledStudentsData);
 
 logger.info("Educator routes registered successfully");
 

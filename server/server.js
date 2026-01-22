@@ -4,9 +4,11 @@ import "dotenv/config";
 import connectDB from "./configs/mongodb.js";
 import { clerkWebhooks } from "./controllers/webhooks.js";
 import educatorRouter from "./routes/educatorRoutes.js";
+import courseRouter from "./routes/courseRoute.js";
 import { clerkMiddleware } from "@clerk/express";
 import connectCloudinary from "./configs/cloudinary.js";
 import logger from "./utils/logger.js";
+import userRouter from "./routes/userRoutes.js";
 
 //initialize express
 const app = express(); 
@@ -190,6 +192,10 @@ app.use('/api/educator', (req, res, next) => {
   logger.debug("Educator routes accessed", { path: req.path });
   next();
 }, educatorRouter);
+
+app.use('/api/course', express.json(), courseRouter);
+
+app.use('/api/user',express.json(),userRouter)
 
 // Error handling middleware
 app.use((err, req, res, next) => {
