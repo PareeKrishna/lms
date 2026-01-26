@@ -1,36 +1,15 @@
 {
   "version": 2,
-  "builds": [
+  "rewrites": [
     {
-      "src": "api/stripe.js",
-      "use": "@vercel/node"
-    },
-    {
-      "src": "server.js",
-      "use": "@vercel/node",
-      "config": {
-        "includeFiles": ["dist/**"]
-      }
-    }
-  ],
-  "routes": [
-    {
-      "src": "/api/stripe",
-      "dest": "api/stripe.js"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "server.js"
+      "source": "/api/stripe",
+      "destination": "/api/stripe.js"
     }
   ],
   "functions": {
     "api/stripe.js": {
       "memory": 1024,
-      "maxDuration": 10
-    },
-    "server.js": {
-      "memory": 1024,
-      "maxDuration": 10
+      "maxDuration": 30
     }
   }
 }
