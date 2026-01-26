@@ -153,182 +153,82 @@ export const clerkWebhooks = async (req, res) => {
   }
 };
 
+const stripeInstance = new Stripe(process.env.STRIPE_SECRET_KEY);
 export const stripeWebhooks = async(request,response)=>{
-  const startTime = Date.now();
-  
+  const sig = request.headers['stripe-signature'];
+
+  logger.debug("Stripe webhook received", {
+    hasSignature: !!sig,
+    bodyType: typeof request.body,
+    isBuffer: Buffer.isBuffer(request.body),
+    bodyLength: request.body?.length
+  });
+
+  let event;
+
   try {
-    // Validate Stripe secret key exists
-    if (!process.env.STRIPE_SECRET_KEY) {
-      logger.error("STRIPE_SECRET_KEY is not configured");
-      return response.status(500).json({ success: false, message: "Stripe configuration error" });
+    if (!Buffer.isBuffer(request.body)) {
+      logger.error("Stripe webhook body is not a Buffer", {
+        bodyType: typeof request.body,
+        bodyConstructor: request.body?.constructor?.name
+      });
+      return response.status(400).json({
+        success: false,
+        message: "Webhook payload must be provided as a Buffer"
+      });
     }
 
-    if (!process.env.STRIPE_WEBHOOK_SECRET) {
-      logger.error("STRIPE_WEBHOOK_SECRET is not configured");
-      return response.status(500).json({ success: false, message: "Stripe webhook secret not configured" });
-    }
-
-    const stripeInstance = new Stripe(process.env.STRIPE_SECRET_KEY);
-    const sig = request.headers['stripe-signature'];
-
-    if (!sig) {
-      logger.warn("Stripe webhook received without signature");
-      return response.status(400).json({ success: false, message: "Missing stripe-signature header" });
-    }
-
-    let event;
-
-    try {
-      event = Stripe.webhooks.constructEvent(request.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
-      logger.info("Stripe webhook event received", { eventType: event.type, eventId: event.id });
-    } catch (err) {
-      logger.error("Stripe webhook signature verification failed", err);
-      return response.status(400).json({ success: false, message: `Webhook Error: ${err.message}` });
-    }
-
-    // Handle the event
-    switch (event.type) {
-      case 'payment_intent.succeeded':
-        {
-          try {
-            const paymentIntent = event.data.object;
-            const paymentIntentId = paymentIntent.id;
-            
-            logger.debug("Processing payment_intent.succeeded", { paymentIntentId });
-            
-            const session = await stripeInstance.checkout.sessions.list({
-              payment_intent: paymentIntentId,
-              limit: 1
-            });
-
-            if (!session.data || session.data.length === 0) {
-              logger.error("No checkout session found for payment intent", { paymentIntentId });
-              return response.status(400).json({ success: false, message: "Checkout session not found" });
-            }
-
-            const { purchaseId } = session.data[0].metadata;
-            
-            if (!purchaseId) {
-              logger.error("Purchase ID missing from session metadata", { paymentIntentId });
-              return response.status(400).json({ success: false, message: "Purchase ID not found in metadata" });
-            }
-
-            const purchaseData = await Purchase.findById(purchaseId);
-            if (!purchaseData) {
-              logger.error("Purchase not found in database", { purchaseId });
-              return response.status(404).json({ success: false, message: "Purchase not found" });
-            }
-
-            const userData = await User.findById(purchaseData.userId);
-            if (!userData) {
-              logger.error("User not found for purchase", { userId: purchaseData.userId, purchaseId });
-              return response.status(404).json({ success: false, message: "User not found" });
-            }
-
-            const courseData = await Course.findById(purchaseData.courseId.toString());
-            if (!courseData) {
-              logger.error("Course not found for purchase", { courseId: purchaseData.courseId, purchaseId });
-              return response.status(404).json({ success: false, message: "Course not found" });
-            }
-
-            // Check if user is already enrolled
-            const isAlreadyEnrolled = courseData.enrolledStudents.some(
-              student => student._id.toString() === userData._id.toString()
-            );
-
-            if (!isAlreadyEnrolled) {
-              courseData.enrolledStudents.push(userData);
-              await courseData.save();
-              logger.info("User enrolled in course", { userId: userData._id, courseId: courseData._id });
-            }
-
-            // Check if course is already in user's enrolled courses
-            const isCourseInUserList = userData.enrolledCourses.some(
-              courseId => courseId.toString() === courseData._id.toString()
-            );
-
-            if (!isCourseInUserList) {
-              userData.enrolledCourses.push(courseData._id);
-              await userData.save();
-            }
-
-            purchaseData.status = 'completed';
-            await purchaseData.save();
-
-            logger.info("Payment intent succeeded - enrollment completed", {
-              purchaseId,
-              userId: userData._id,
-              courseId: courseData._id,
-              duration: `${Date.now() - startTime}ms`
-            });
-          } catch (error) {
-            logger.error("Error processing payment_intent.succeeded", error, {
-              eventId: event.id,
-              paymentIntentId: event.data.object?.id
-            });
-            return response.status(500).json({ success: false, message: "Error processing payment" });
-          }
-          break;
-        }
-      case 'payment_intent.payment_failed':
-        {
-          try {
-            const paymentIntent = event.data.object;
-            const paymentIntentId = paymentIntent.id;
-            
-            logger.debug("Processing payment_intent.payment_failed", { paymentIntentId });
-            
-            const session = await stripeInstance.checkout.sessions.list({
-              payment_intent: paymentIntentId,
-              limit: 1
-            });
-
-            if (!session.data || session.data.length === 0) {
-              logger.error("No checkout session found for failed payment intent", { paymentIntentId });
-              return response.status(400).json({ success: false, message: "Checkout session not found" });
-            }
-
-            const { purchaseId } = session.data[0].metadata;
-            
-            if (!purchaseId) {
-              logger.error("Purchase ID missing from session metadata", { paymentIntentId });
-              return response.status(400).json({ success: false, message: "Purchase ID not found in metadata" });
-            }
-
-            const purchaseData = await Purchase.findById(purchaseId);
-            if (!purchaseData) {
-              logger.error("Purchase not found in database", { purchaseId });
-              return response.status(404).json({ success: false, message: "Purchase not found" });
-            }
-
-            purchaseData.status = 'failed';
-            await purchaseData.save();
-
-            logger.info("Payment intent failed - status updated", {
-              purchaseId,
-              duration: `${Date.now() - startTime}ms`
-            });
-          } catch (error) {
-            logger.error("Error processing payment_intent.payment_failed", error, {
-              eventId: event.id,
-              paymentIntentId: event.data.object?.id
-            });
-            return response.status(500).json({ success: false, message: "Error processing failed payment" });
-          }
-          break;
-        }
-      // ... handle other event types
-      default:
-        logger.info(`Unhandled Stripe event type`, { eventType: event.type });
-        break;
-    }
-
-    // Return a response to acknowledge receipt of the event
-    response.json({ success: true, received: true });
-  } catch (error) {
-    logger.error("Unexpected error in Stripe webhook handler", error, {
-      duration: `${Date.now() - startTime}ms`
-    });
-    response.status(500).json({ success: false, message: "Internal server error" });
+    event = stripeInstance.webhooks.constructEvent(request.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
+    logger.info("Stripe webhook signature verified", { eventType: event.type });
   }
+  catch (err) {
+    logger.error("Stripe webhook verification failed", err);
+    return response.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  // Handle the event
+  switch (event.type) {
+    case 'payment_intent.succeeded':{
+      const paymentIntent = event.data.object;
+      //console.log('PaymentIntent was successful!');
+      const paymentIntentId = paymentIntent.id;
+      const session = await stripeInstance.checkout.sessions.list({
+        payment_intent: paymentIntentId
+      })
+      const {purchaseId} = session.data[0].metadata;
+      const purchaseData = await Purchase.findById(purchaseId);
+      const userData = await User.findById(purchaseData.userId);
+      const courseData = await Course.findById(purchaseData.courseId.toString());
+
+      courseData.enrolledStudents.push(userData);
+      await courseData.save();
+
+      userData.enrolledCourses.push(courseData._id);
+      await userData.save();
+
+      purchaseData.status = 'completed';
+      await purchaseData.save();
+      break;
+    }
+    case 'payment_intent.payment_failed':{
+
+      const paymentIntent = event.data.object;
+      //console.log('PaymentIntent was successful!');
+      const paymentIntentId = paymentIntent.id;
+      const session = await stripeInstance.checkout.sessions.list({
+        payment_intent: paymentIntentId
+      })
+      const {purchaseId} = session.data[0].metadata;
+      const purchaseData = await Purchase.findById(purchaseId);
+      purchaseData.status = 'failed'
+      await purchaseData.save();
+      break;
+    }
+    // ... handle other event types
+    default:
+      console.log(`Unhandled event type ${event.type}`);
+  }
+
+  // Return a response to acknowledge receipt of the event
+  response.json({received: true});
 }

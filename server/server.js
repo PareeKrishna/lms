@@ -37,17 +37,45 @@ try {
   process.exit(1);
 }
 
+// CRITICAL: Stripe webhook MUST be registered BEFORE any middleware
+// This ensures the body remains as a Buffer for signature verification
+app.post('/stripe', 
+  express.raw({ type: 'application/json' }), 
+  (req, res, next) => {
+    logger.debug("Stripe webhook called, body type:", typeof req.body, "is Buffer:", Buffer.isBuffer(req.body));
+    next();
+  },
+  stripeWebhooks
+);
+logger.debug("Stripe webhook endpoint registered (before ALL middleware)");
+
 //middlewares
 app.use(cors());
 logger.debug("CORS middleware enabled");
 
-// Body parsing middleware (must come before Clerk middleware)
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+// Body parsing middleware - will NOT affect /stripe since it's already handled
+app.use((req, res, next) => {
+  if (req.path === '/stripe') {
+    // Skip body parsing for Stripe webhook
+    return next();
+  }
+  express.json({ limit: '10mb' })(req, res, next);
+});
+app.use((req, res, next) => {
+  if (req.path === '/stripe') {
+    return next();
+  }
+  express.urlencoded({ extended: true, limit: '10mb' })(req, res, next);
+});
 logger.debug("Body parsing middleware enabled");
 
 // Validate and sanitize Authorization header before Clerk processes it
 app.use((req, res, next) => {
+  // Skip this middleware for Stripe webhook
+  if (req.path === '/stripe') {
+    return next();
+  }
+
   const authHeader = req.headers.authorization;
   
   // Log whether Authorization header is present (for debugging)
@@ -93,6 +121,11 @@ app.use((req, res, next) => {
 // Clerk middleware with comprehensive error handling
 // This wrapper catches both synchronous and asynchronous errors from Clerk
 app.use((req, res, next) => {
+  // Skip Clerk middleware for Stripe webhook
+  if (req.path === '/stripe') {
+    return next();
+  }
+
   try {
     const clerkMw = clerkMiddleware();
     
@@ -151,6 +184,16 @@ app.get("/", (req, res) => {
   res.send("API working");
 });
 
+// Test endpoint to debug body parsing
+app.post("/test-raw", express.raw({ type: 'application/json' }), (req, res) => {
+  res.json({
+    bodyType: typeof req.body,
+    isBuffer: Buffer.isBuffer(req.body),
+    constructor: req.body?.constructor?.name,
+    length: req.body?.length
+  });
+});
+
 // Test authentication endpoint (no role required)
 app.get("/api/test-auth", (req, res) => {
   try {
@@ -196,7 +239,6 @@ app.use('/api/educator', (req, res, next) => {
 app.use('/api/course', express.json(), courseRouter);
 
 app.use('/api/user',express.json(),userRouter)
-app.post('/stripe', express.raw({ type: 'application/json' }), stripeWebhooks);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
