@@ -4,6 +4,7 @@ import Course from "../models/Course.js";
 import User from "../models/User.js";
 import connectDB from "../configs/mongodb.js";
 import logger from "../utils/logger.js";
+import { buffer } from "micro";
 
 // Disable body parsing for this route - Vercel will keep it as Buffer
 export const config = {
@@ -46,31 +47,13 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: "Webhook secret not configured" });
     }
 
-    // Vercel automatically handles the body as Buffer when bodyParser is disabled
-    let rawBody;
+    // Use micro's buffer() to get the raw body
+    const rawBody = await buffer(req);
     
-    if (Buffer.isBuffer(req.body)) {
-      // Body is already a Buffer (ideal case)
-      rawBody = req.body;
-      logger.debug("Body is already a Buffer", { length: rawBody.length });
-    } else if (req.body && typeof req.body === 'object') {
-      // Body was parsed as JSON, convert back to string
-      rawBody = Buffer.from(JSON.stringify(req.body), 'utf8');
-      logger.warn("Body was parsed as JSON, converting back", { length: rawBody.length });
-    } else if (typeof req.body === 'string') {
-      // Body is a string
-      rawBody = Buffer.from(req.body, 'utf8');
-      logger.debug("Body is a string, converting to Buffer", { length: rawBody.length });
-    } else {
-      // Try to read from stream
-      logger.debug("Reading body from stream");
-      const chunks = [];
-      for await (const chunk of req) {
-        chunks.push(chunk);
-      }
-      rawBody = Buffer.concat(chunks);
-      logger.debug("Raw body constructed from stream", { length: rawBody.length });
-    }
+    logger.debug("Raw body obtained", {
+      isBuffer: Buffer.isBuffer(rawBody),
+      length: rawBody.length
+    });
 
     event = stripeInstance.webhooks.constructEvent(
       rawBody,
