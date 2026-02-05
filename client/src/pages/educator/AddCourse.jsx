@@ -1,14 +1,19 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useContext, useEffect, useRef, useState } from "react";
 import uniqid from "uniqid";
 import Quill from "quill";
-import "quill/dist/quill.core.css";
+import "quill/dist/quill.snow.css";
+import axios from "axios";
 import { assets } from "../../assets/assets";
 import { useAuth } from "@clerk/clerk-react";
+import { AppContext } from "../../context/AppContext";
+import { toast } from "react-toastify";
 
 const AddCourse = () => {
+
+  const { backendUrl, getToken } = useContext(AppContext);
   const quillRef = useRef(null);
   const editorRef = useRef(null);
-  const { getToken } = useAuth();
+  // const { getToken } = useAuth();
 
   const [courseTitle, setCourseTitle] = useState("");
   const [coursePrice, setCoursePrice] = useState(0);
@@ -25,6 +30,24 @@ const AddCourse = () => {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitMessage, setSubmitMessage] = useState("");
+
+  useEffect(() => {
+    if (editorRef.current && !quillRef.current) {
+      quillRef.current = new Quill(editorRef.current, {
+        theme: "snow",
+        placeholder: "Write course description here...",
+        modules: {
+          toolbar: [
+            [{ header: [1, 2, 3, false] }],
+            ["bold", "italic", "underline"],
+            [{ list: "ordered" }, { list: "bullet" }],
+            ["link"],
+            ["clean"],
+          ],
+        },
+      });
+    }
+  }, []);
 
   const handleChapter = (action, chapterId) => {
     if (action === "add") {
@@ -98,102 +121,46 @@ const AddCourse = () => {
   };
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
-    setIsSubmitting(true);
-    setSubmitMessage("");
-
     try {
-      // Get the Clerk token
-      const token = await getToken();
-      
-      if (!token) {
-        setSubmitMessage("Error: Please sign in to add a course");
-        setIsSubmitting(false);
+      e.preventDefault();
+      if (!image) {
+        toast.error("Please upload a thumbnail image");
         return;
       }
-
-      // Get course description from Quill editor
-      const courseDescription = quillRef.current?.root.innerHTML || "";
-
-      // Validate required fields
-      if (!courseTitle || !image || chapters.length === 0) {
-        setSubmitMessage("Error: Please fill in all required fields (title, thumbnail, and at least one chapter)");
-        setIsSubmitting(false);
-        return;
-      }
-
-      // Prepare course data
       const courseData = {
         courseTitle,
-        courseDescription,
+        courseDescription: quillRef.current ? quillRef.current.root.innerHTML : "",
         coursePrice: Number(coursePrice),
         discount: Number(discount),
-        courseContent: chapters.map((chapter) => ({
-          chapterId: chapter.chapterId,
-          chapterOrder: chapter.chapterOrder,
-          chapterTitle: chapter.chapterTitle,
-          chapterContent: chapter.chapterContent.map((lecture) => ({
-            lectureId: lecture.lectureId,
-            lectureTitle: lecture.lectureTitle,
-            lectureDuration: Number(lecture.lectureDuration),
-            lectureUrl: lecture.lectureUrl,
-            isPreviewFree: lecture.isPreviewFree,
-            lectureOrder: lecture.lectureOrder,
-          })),
-        })),
-      };
-
-      // Create FormData for file upload
+        courseContent: chapters
+      }
       const formData = new FormData();
-      formData.append("image", image);
-      formData.append("courseData", JSON.stringify(courseData));
+      formData.append('courseData', JSON.stringify(courseData));
+      formData.append('image', image);
 
-      // Get API URL from environment or use default
-      const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:5000";
-      
-      // Make the API request with Authorization header
-      const response = await fetch(`${apiUrl}/api/educator/add-course`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-        body: formData,
-      });
+      const token = await getToken();
+      const { data } = await axios.post(backendUrl + '/api/educator/add-course', formData, { headers: { Authorization: `Bearer ${token}` } });
 
-      const result = await response.json();
-
-      if (result.success) {
-        setSubmitMessage("Course added successfully!");
-        // Reset form
+      if (data.success) {
+        toast.success(data.message);
         setCourseTitle("");
         setCoursePrice(0);
         setDiscount(0);
         setImage(null);
         setChapters([]);
-        if (quillRef.current) {
-          quillRef.current.root.innerHTML = "";
-        }
+        quillRef.current.root.innerHTML = "";
       } else {
-        setSubmitMessage(`Error: ${result.message || "Failed to add course"}`);
+        toast.error(data.message);
       }
     } catch (error) {
-      console.error("Error submitting course:", error);
-      setSubmitMessage(`Error: ${error.message || "Failed to add course"}`);
-    } finally {
-      setIsSubmitting(false);
+      toast.error(error.message);
     }
   }
-  useEffect(() => {
-    if (!quillRef.current && editorRef.current) {
-      quillRef.current = new Quill(editorRef.current, {
-        theme: "snow",
-      });
-    }
-  }, []);
+
 
   return (
     <div className="h-screen overflow-scroll flex flex-col items-start justify-between md:p-8 md:pb-0 p-4 pt-8 pb-0">
-      <form  onSubmit={handleSubmit} className="flex flex-col gap-4 max-w-md w-full text-gray-500 ">
+      <form onSubmit={handleSubmit} className="flex flex-col gap-4 max-w-md w-full text-gray-500 ">
         <div className="flex flex-col gap-1">
           <p>Course Title</p>
           <input
@@ -271,9 +238,8 @@ const AddCourse = () => {
                     src={assets.dropdown_icon}
                     width={14}
                     alt=""
-                    className={`mr-2 cursor-pointer transition-all ${
-                      chapter.collapsed && "-rotate-90"
-                    }`}
+                    className={`mr-2 cursor-pointer transition-all ${chapter.collapsed && "-rotate-90"
+                      }`}
                   />
                   <span classname="font-semibold">
                     {" "}

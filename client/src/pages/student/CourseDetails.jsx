@@ -7,26 +7,71 @@ import Loading from "../../components/student/Loading";
 import humanizeDuration from "humanize-duration";
 import Footer from "../../components/student/Footer";
 import Youtube from "react-youtube";
+import axios from "axios";
+import { toast } from "react-toastify";
 const CourseDetails = () => {
   const { id } = useParams();
   const [courseData, setCourseData] = useState(null);
   const [openSections, setOpenSections] = useState({});
-  const [isAlreadyEnrolled, setIsAlreadyEnrolled] = useState(false );
+  const [isAlreadyEnrolled, setIsAlreadyEnrolled] = useState(false);
   const [playerData, setPlayerData] = useState(null);
-  const { allCourses, calculateRating, calculateChapterTime, calculateCourseDuration, calculateNoOfLectures, currency } = useContext(AppContext);
+  const { allCourses, calculateRating, calculateChapterTime, calculateCourseDuration, calculateNoOfLectures, currency, backendUrl, userData, getToken, enrolledCourses } = useContext(AppContext);
 
   const fetchCourseData = async () => {
-    const findCourse = allCourses.find((course) => course._id === id);
-    setCourseData(findCourse);
+    try {
+      const { data } = await axios.get(backendUrl + '/api/course/' + id);
+      if (data.success) {
+        setCourseData(data.courseData);
+      } else {
+        toast.error(data.message);
+      }
+    } catch (error) {
+      toast.error(error.message);
+    }
   };
 
+
+  const enrollCourse = async () => {
+    try {
+      if (!userData) {
+        return toast.warn('Login to enroll in this course');
+      }
+      if (isAlreadyEnrolled) {
+        return toast.warn('You are already enrolled in this course');
+      }
+      const token = await getToken();
+      const { data } = await axios.post(backendUrl + '/api/user/purchase', { courseId: courseData._id }, { headers: { Authorization: `Bearer ${token}` } });
+      if (data.success) {
+        const { session_url } = data;
+        window.location.replace(session_url);
+
+      } else {
+        toast.error(data.message);
+      }
+    } catch (error) {
+      toast.error(error.message);
+    }
+  }
   useEffect(() => {
     fetchCourseData();
-  }, [allCourses]);
-  
+  }, []);
+
+  useEffect(() => {
+    if (!courseData) return;
+    const courseIdStr = String(courseData._id);
+    // Check userData.enrolledCourses (array of course IDs from /api/user/data)
+    const fromUserData = Array.isArray(userData?.enrolledCourses) &&
+      userData.enrolledCourses.some((id) => String(id) === courseIdStr);
+    // Fallback: check context enrolledCourses (full course objects from /api/user/enrolled-courses)
+    const fromEnrolledList = Array.isArray(enrolledCourses) &&
+      enrolledCourses.some((c) => c && String(c._id) === courseIdStr);
+    setIsAlreadyEnrolled(Boolean(fromUserData || fromEnrolledList));
+  }, [userData, courseData, enrolledCourses]);
+
   const toggleSection = (index) => {
-    setOpenSections((prev)=>(
-      {...prev,
+    setOpenSections((prev) => (
+      {
+        ...prev,
         [index]: !prev[index]
       }
     ))
@@ -77,7 +122,7 @@ const CourseDetails = () => {
             </p>
           </div>
           <p className="text-sm">
-            Course by <span className="text-blue-600 underline">KP</span>
+            Course by <span className="text-blue-600 underline">{courseData.educator.name}</span>
           </p>
 
           <div className="pt-8 text-gray-800">
@@ -94,9 +139,8 @@ const CourseDetails = () => {
                   >
                     <div className="flex items-center gap-2 ">
                       <img
-                        className={`transform transition-transform ${
-                          openSections[index] ? "rotate-180" : ""
-                        }`}
+                        className={`transform transition-transform ${openSections[index] ? "rotate-180" : ""
+                          }`}
                         src={assets.down_arrow_icon}
                         alt="arrow_icon"
                       />
@@ -111,9 +155,8 @@ const CourseDetails = () => {
                   </div>
 
                   <div
-                    className={`overflow-hidden transition-all duration-300 ${
-                      openSections[index] ? "max-h-96" : "max-h-0"
-                    }`}
+                    className={`overflow-hidden transition-all duration-300 ${openSections[index] ? "max-h-96" : "max-h-0"
+                      }`}
                   >
                     <ul className="list-disc md:pl-10 pl-4 pr-4 py-2 text-gray-600 border-t border-gray-300">
                       {chapter.chapterContent.map((lecture, index) => (
@@ -187,13 +230,13 @@ const CourseDetails = () => {
 
           <div className="p-5">
             <div className="flex items-center gap-2">
-               
-                <img
-                  className="w-3.5"
-                  src={assets.time_left_clock_icon}
-                  alt="time left clock icon"
-                />
-              
+
+              <img
+                className="w-3.5"
+                src={assets.time_left_clock_icon}
+                alt="time left clock icon"
+              />
+
 
               <p className="text-red-500">
                 <span className="font-medium">5 days</span> left at this price
@@ -237,7 +280,7 @@ const CourseDetails = () => {
                 <p>{calculateNoOfLectures(courseData)} lessons </p>
               </div>
             </div>
-            <button className="md:mt-6 mt-4 w-full py-3 rounded bg-blue-600 text-white font-medium hover:bg-blue-700 cursor-pointer">
+            <button onClick={enrollCourse} className="md:mt-6 mt-4 w-full py-3 rounded bg-blue-600 text-white font-medium hover:bg-blue-700 cursor-pointer">
               {isAlreadyEnrolled ? "Already Enrolled" : "Enroll Now"}
             </button>
 
