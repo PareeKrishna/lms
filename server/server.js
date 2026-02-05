@@ -10,276 +10,111 @@ import connectCloudinary from "./configs/cloudinary.js";
 import logger from "./utils/logger.js";
 import userRouter from "./routes/userRoutes.js";
 
-//initialize express
-const app = express(); 
+// initialize express
+const app = express();
 
 logger.info("Initializing server", {
   nodeEnv: process.env.NODE_ENV || "development",
   port: process.env.PORT || process.env.port || 5000,
 });
 
-//connect to database
-try {
-  logger.info("Connecting to MongoDB...");
-  await connectDB();
-} catch (error) {
-  logger.error("Failed to connect to MongoDB", error);
-  process.exit(1);
-}
+// connect to database
+await connectDB();
+await connectCloudinary();
 
-//connect to Cloudinary
-try {
-  logger.info("Connecting to Cloudinary...");
-  await connectCloudinary();
-  logger.info("Cloudinary connected successfully");
-} catch (error) {
-  logger.error("Failed to connect to Cloudinary", error);
-  process.exit(1);
-}
+/* ------------------------------------------------------------------ */
+/* ----------------------- STRIPE WEBHOOK (FIRST) -------------------- */
+/* ------------------------------------------------------------------ */
 
-// CRITICAL: Stripe webhook MUST be registered BEFORE any middleware
-// This ensures the body remains as a Buffer for signature verification
-app.post('/stripe', 
-  express.raw({ type: 'application/json' }), 
-  (req, res, next) => {
-    logger.debug("Stripe webhook called, body type:", typeof req.body, "is Buffer:", Buffer.isBuffer(req.body));
-    next();
-  },
+app.post(
+  "/stripe",
+  express.raw({ type: "application/json" }),
   stripeWebhooks
 );
-logger.debug("Stripe webhook endpoint registered (before ALL middleware)");
 
-//middlewares
-app.use(cors());
+/* ------------------------------------------------------------------ */
+/* --------------------------- CORS (FIXED) --------------------------- */
+/* ------------------------------------------------------------------ */
+
+const corsOptions = {
+  origin: [
+    "http://localhost:5173",
+    "https://lms-frontend-liard-five.vercel.app",
+  ],
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+};
+
+app.use(cors(corsOptions));
+
+// 🔴 THIS WAS MISSING — REQUIRED FOR PREFLIGHT
+app.options("*", cors(corsOptions));
+
 logger.debug("CORS middleware enabled");
 
-// Body parsing middleware - will NOT affect /stripe since it's already handled
-app.use((req, res, next) => {
-  if (req.path === '/stripe') {
-    // Skip body parsing for Stripe webhook
-    return next();
-  }
-  express.json({ limit: '10mb' })(req, res, next);
-});
-app.use((req, res, next) => {
-  if (req.path === '/stripe') {
-    return next();
-  }
-  express.urlencoded({ extended: true, limit: '10mb' })(req, res, next);
-});
-logger.debug("Body parsing middleware enabled");
+/* ------------------------------------------------------------------ */
+/* --------------------- BODY PARSING (SAFE) -------------------------- */
+/* ------------------------------------------------------------------ */
 
-// Validate and sanitize Authorization header before Clerk processes it
 app.use((req, res, next) => {
-  // Skip this middleware for Stripe webhook
-  if (req.path === '/stripe') {
-    return next();
-  }
-
-  const authHeader = req.headers.authorization;
-  
-  // Log whether Authorization header is present (for debugging)
-  if (!authHeader && (req.url.includes('/api/educator') || req.url.includes('/api/'))) {
-    logger.warn("Missing Authorization header in protected route", {
-      method: req.method,
-      url: req.url,
-      allHeaders: Object.keys(req.headers),
-    });
-  }
-  
-  if (authHeader) {
-    // Check for invalid characters that might cause parsing errors
-    // Remove any BOM or non-ASCII characters that shouldn't be in a JWT
-    const sanitized = authHeader.replace(/[\uFEFF\u200B-\u200D\u2060]/g, '').trim();
-    
-    // Validate it looks like a Bearer token
-    if (!sanitized.startsWith('Bearer ')) {
-      logger.warn("Invalid Authorization header format", {
-        method: req.method,
-        url: req.url,
-        headerPrefix: authHeader.substring(0, 20),
-      });
-      req.headers.authorization = null; // Remove invalid header
-    } else if (sanitized !== authHeader) {
-      logger.debug("Sanitized Authorization header", {
-        method: req.method,
-        url: req.url,
-      });
-      req.headers.authorization = sanitized;
-    } else {
-      logger.debug("Valid Authorization header present", {
-        method: req.method,
-        url: req.url,
-        hasToken: authHeader.length > 7,
-      });
-    }
-  }
-  
-  next();
+  if (req.path === "/stripe") return next();
+  express.json({ limit: "10mb" })(req, res, next);
 });
 
-// Clerk middleware with comprehensive error handling
-// This wrapper catches both synchronous and asynchronous errors from Clerk
 app.use((req, res, next) => {
-  // Skip Clerk middleware for Stripe webhook
-  if (req.path === '/stripe') {
-    return next();
-  }
+  if (req.path === "/stripe") return next();
+  express.urlencoded({ extended: true, limit: "10mb" })(req, res, next);
+});
 
+/* ------------------------------------------------------------------ */
+/* --------------------- CLERK MIDDLEWARE ----------------------------- */
+/* ------------------------------------------------------------------ */
+
+app.use((req, res, next) => {
+  if (req.path === "/stripe") return next();
   try {
-    const clerkMw = clerkMiddleware();
-    
-    // Execute Clerk middleware and catch any errors passed to callback
-    clerkMw(req, res, (err) => {
-      if (err) {
-        // Handle JWT parsing errors specifically
-        if (err.name === 'SyntaxError' && err.message.includes('Invalid character')) {
-          logger.warn("Clerk JWT parsing error - invalid token format (caught in callback)", {
-            method: req.method,
-            url: req.url,
-            errorMessage: err.message,
-          });
-          // Set req.auth to return null userId (not throw) so routes can check gracefully
-          req.auth = () => ({ userId: null });
-        } else {
-          logger.warn("Clerk middleware error (caught in callback)", err, {
-            method: req.method,
-            url: req.url,
-          });
-          req.auth = () => ({ userId: null });
-        }
-      }
-      // Continue to next middleware (routes will handle auth requirements)
-      next();
-    });
-  } catch (err) {
-    // Catch synchronous errors thrown by Clerk middleware
-    if (err.name === 'SyntaxError' && err.message.includes('Invalid character')) {
-      logger.warn("Clerk JWT parsing error - invalid token format (caught synchronously)", {
-        method: req.method,
-        url: req.url,
-        errorMessage: err.message,
-      });
-      // Set req.auth to return null userId (not throw) so routes can check gracefully
-      req.auth = () => ({ userId: null });
-    } else {
-      logger.warn("Clerk middleware error (caught synchronously)", err, {
-        method: req.method,
-        url: req.url,
-      });
-      req.auth = () => ({ userId: null });
-    }
-    // Continue to next middleware even if Clerk fails
+    clerkMiddleware()(req, res, () => next());
+  } catch {
+    req.auth = () => ({ userId: null });
     next();
   }
 });
-logger.debug("Clerk middleware enabled with comprehensive error handling");
 
-// Request logging middleware
+/* ------------------------------------------------------------------ */
+/* --------------------------- LOGGING -------------------------------- */
+/* ------------------------------------------------------------------ */
+
 app.use(logger.request);
 
-//routes
+/* ------------------------------------------------------------------ */
+/* ---------------------------- ROUTES -------------------------------- */
+/* ------------------------------------------------------------------ */
+
 app.get("/", (req, res) => {
-  logger.debug("Health check endpoint accessed");
   res.send("API working");
 });
 
-// Test endpoint to debug body parsing
-app.post("/test-raw", express.raw({ type: 'application/json' }), (req, res) => {
-  res.json({
-    bodyType: typeof req.body,
-    isBuffer: Buffer.isBuffer(req.body),
-    constructor: req.body?.constructor?.name,
-    length: req.body?.length
-  });
-});
+app.post("/clerk", express.json(), clerkWebhooks);
 
-// Test authentication endpoint (no role required)
-app.get("/api/test-auth", (req, res) => {
-  try {
-    const authResult = req.auth();
-    const userId = authResult?.userId;
-    
-    if (userId) {
-      logger.info("Authentication test successful", { userId });
-      res.json({ 
-        success: true, 
-        message: "Authentication working!",
-        userId: userId,
-        authenticated: true
-      });
-    } else {
-      logger.warn("Authentication test - no userId");
-      res.status(401).json({ 
-        success: false, 
-        message: "Not authenticated - no userId found",
-        authenticated: false
-      });
-    }
-  } catch (error) {
-    logger.error("Authentication test failed", error);
-    res.status(401).json({ 
-      success: false, 
-      message: "Authentication failed: " + error.message,
-      authenticated: false
-    });
-  }
-});
+app.use("/api/educator", educatorRouter);
+app.use("/api/course", courseRouter);
+app.use("/api/user", userRouter);
 
-app.post("/clerk", express.json(), (req, res, next) => {
-  logger.debug("Clerk webhook endpoint accessed");
-  next();
-}, clerkWebhooks);
+/* ------------------------------------------------------------------ */
+/* ----------------------- ERROR HANDLING ----------------------------- */
+/* ------------------------------------------------------------------ */
 
-app.use('/api/educator', (req, res, next) => {
-  logger.debug("Educator routes accessed", { path: req.path });
-  next();
-}, educatorRouter);
-
-app.use('/api/course', express.json(), courseRouter);
-
-app.use('/api/user',express.json(),userRouter)
-
-// Error handling middleware
 app.use((err, req, res, next) => {
-  // Handle Clerk authentication errors specifically
-  if (err.name === 'SyntaxError' && err.message.includes('Invalid character')) {
-    logger.error("Clerk JWT parsing error - invalid token format", err, {
-      method: req.method,
-      url: req.url,
-      ip: req.ip,
-      authHeader: req.headers.authorization ? 'present' : 'missing',
-    });
-    return res.status(401).json({ 
-      success: false, 
-      message: "Invalid authentication token. Please sign in again." 
-    });
-  }
-
-  // Handle other Clerk-related errors
-  if (err.message && err.message.includes('clerk')) {
-    logger.error("Clerk authentication error", err, {
-      method: req.method,
-      url: req.url,
-      ip: req.ip,
-    });
-    return res.status(401).json({ 
-      success: false, 
-      message: "Authentication failed. Please sign in again." 
-    });
-  }
-
-  // Handle all other errors
-  logger.error("Unhandled error in Express middleware", err, {
-    method: req.method,
-    url: req.url,
-    ip: req.ip,
-  });
+  logger.error("Unhandled error", err);
   res.status(500).json({ success: false, message: "Internal server error" });
 });
 
-//port
-const PORT = process.env.PORT || process.env.port || 5000;
+/* ------------------------------------------------------------------ */
+/* ----------------------------- START -------------------------------- */
+/* ------------------------------------------------------------------ */
+
+const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
   logger.info("Server started successfully", {
