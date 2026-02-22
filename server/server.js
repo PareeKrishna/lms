@@ -48,8 +48,7 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 
-// 🔴 THIS WAS MISSING — REQUIRED FOR PREFLIGHT
-app.options("*", cors(corsOptions));
+// CORS preflight is handled by the `cors` middleware installed above.
 
 logger.debug("CORS middleware enabled");
 

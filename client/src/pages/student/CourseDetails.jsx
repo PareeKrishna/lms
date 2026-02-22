@@ -30,6 +30,22 @@ const CourseDetails = () => {
     }
   };
 
+  const extractYouTubeId = (url) => {
+    if (!url) return "";
+    try {
+      const u = new URL(url);
+      if (u.hostname.includes("youtu.be")) return u.pathname.slice(1);
+      const v = u.searchParams.get("v");
+      if (v) return v;
+      const parts = u.pathname.split("/").filter(Boolean);
+      return parts[parts.length - 1] || "";
+    } catch (err) {
+      if (typeof url !== 'string') return "";
+      if (url.includes("v=")) return url.split("v=")[1].split("&")[0];
+      return url.split("/").pop() || "";
+    }
+  };
+
 
   const enrollCourse = async () => {
     try {
@@ -173,9 +189,7 @@ const CourseDetails = () => {
                                 <p
                                   onClick={() =>
                                     setPlayerData({
-                                      videoId: lecture.lectureUrl
-                                        .split("/")
-                                        .pop(),
+                                      videoId: extractYouTubeId(lecture.lectureUrl),
                                     })
                                   }
                                   className="text-blue-500 cursor-pointer"

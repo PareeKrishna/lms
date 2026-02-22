@@ -38,6 +38,22 @@ const Player = () => {
     setOpenSections((prev) => ({ ...prev, [index]: !prev[index] }));
   };
 
+  const extractYouTubeId = (url) => {
+    if (!url) return "";
+    try {
+      const u = new URL(url);
+      if (u.hostname.includes("youtu.be")) return u.pathname.slice(1);
+      const v = u.searchParams.get("v");
+      if (v) return v;
+      const parts = u.pathname.split("/").filter(Boolean);
+      return parts[parts.length - 1] || "";
+    } catch (err) {
+      if (typeof url !== 'string') return "";
+      if (url.includes("v=")) return url.split("v=")[1].split("&")[0];
+      return url.split("/").pop() || "";
+    }
+  };
+
   useEffect(() => {
     if (enrolledCourses.length > 0) {
       getCourseData();
@@ -152,6 +168,7 @@ const Player = () => {
                                       ...lecture,
                                       chapter: index + 1,
                                       lecture: i + 1,
+                                      videoId: extractYouTubeId(lecture.lectureUrl),
                                     })
                                   }
                                   className="text-blue-500 cursor-pointer"
@@ -184,11 +201,14 @@ const Player = () => {
         <div className='md:mt-10' >
           {playerData ? (
             <div>
-              <YouTube
-                videoId={playerData.lectureUrl.split('/').pop()}
-
-                iframeClassName="w-full aspect-video"
-              />
+              {(() => {
+                const id = extractYouTubeId(playerData.lectureUrl ?? playerData.videoId);
+                return id ? (
+                  <YouTube videoId={id} iframeClassName="w-full aspect-video" />
+                ) : (
+                  <div className="w-full aspect-video bg-gray-100 flex items-center justify-center">Invalid or missing video</div>
+                );
+              })()}
               <div className='flex justify-between items-center mt-1' >
                 <p>{playerData.chapter}.{playerData.lecture} {playerData.lectureTitle}</p>
                 <button onClick={() => markLectureAsCompleted(playerData.lectureId)} className="text-blue-600" >{progressData?.lectureCompleted && Array.isArray(progressData.lectureCompleted) && playerData.lectureId && progressData.lectureCompleted.includes(playerData.lectureId) ? 'Completed ' : 'Mark Complete'}</button>
