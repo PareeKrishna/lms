@@ -7,9 +7,10 @@ const Footer = () => {
       <div className="flex items-center gap-4">
         <img className="hidden md:block w-20" src={assets.logo} alt="logo" />
         <div className="hidden md:block h-7 w-px bg-gray-500/60"></div>
-        <p className="py-4 text-left text-xs md:text-sm text-gray-500">
-          Copyright 2026 © KP. All Right Reserved.
-        </p>
+        <div className="py-4 text-left text-xs md:text-sm text-gray-500">
+          <p>Edemy — Practical courses, real projects, career-ready skills.</p>
+          <p className="mt-1">© 2026 Edemy. All rights reserved.</p>
+        </div>
       </div>
       <div className="flex items-center gap-3 max-md:mt-4">
         <a href="#">

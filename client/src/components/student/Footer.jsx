@@ -7,16 +7,15 @@ const Footer = () => {
       <div className='flex flex-col md:flex-row items-start px-8 md:px-0 justify-center gap-10 md:gap-32 py-10 border-b border-white/30' >
         <div className='flex flex-col md:items-start items-center w-full' >
           <img src={assets.logo_dark} alt='logo' />
-          <p className='mt-6 text-center md:text-left text-sm  text-gray-400' >Lorem ipsum dolor sit amet consectetur adipisicing elit. Odit temporibus architecto vel veritatis pariatur suscipit, exercitationem recusandae sequi est ab.</p>
+          <p className='mt-6 text-center md:text-left text-sm  text-gray-400' >Edemy helps learners build real-world skills with practical, project-based courses taught by industry experts. Get lifetime access, downloadable resources, and a certificate on completion.</p>
         </div>
         <div className='flex flex-col md:items-start items-center w-full' >
           <h2 className='font-semibold text-white mb-5' >Company</h2>
           <ul className='flex md:flex-col w-full justify-between text-sm text-white/80 md:space-y-2' >
-            <li><a href='#'>Home</a></li>
-            <li><a href='#'>About Us</a></li>
-            <li><a href='#'>Contact Us</a></li>
-            <li><a href='#'>Privacy Policy</a></li>
-            
+            <li><a href='/'>Home</a></li>
+            <li><a href='/about'>About</a></li>
+            <li><a href='/contact'>Contact</a></li>
+            <li><a href='/privacy'>Privacy Policy</a></li>
           </ul>
         </div>
         <div className='hidden md:flex flex-col items-start w-full' >
@@ -29,7 +28,7 @@ const Footer = () => {
           </div>
         </div>
       </div>
-      <p className='py-4 text-center text-xs md:text-sm text-white/60' >Copyright © 2026 LMS. All rights reserved.</p>
+      <p className='py-4 text-center text-xs md:text-sm text-white/60' >Copyright © 2026 Edemy. All rights reserved. Need help? Email <a href="mailto:support@edemy.example" className="text-white/80 underline">support@edemy.example</a></p>
     </footer>
   )
 }
